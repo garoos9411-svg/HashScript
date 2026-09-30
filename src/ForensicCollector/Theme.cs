@@ -38,31 +38,40 @@ namespace ForensicCollector
 
         private static void ApplyRecursive(Control c)
         {
-            if (c is Button b)
+            // Все проверки типов через «as» — pattern matching (is Type name) недоступен в C# 5 / старом csc.exe
+            Button b = c as Button;
+            TextBox tb = c as TextBox;
+            RichTextBox rtb = c as RichTextBox;
+            CheckBox chk = c as CheckBox;
+            Label lbl = c as Label;
+            ProgressBar pb = c as ProgressBar;
+            GroupBox gb = c as GroupBox;
+
+            if (b != null)
             {
                 // Кнопку «Отмена» красим красным, остальные — серым (акцент задаётся отдельно)
                 StyleButton(b, b.Name == "btnCancel" ? Danger : Panel);
             }
-            else if (c is TextBox || c is RichTextBox)
+            else if (tb != null || rtb != null)
             {
                 c.BackColor = Input;
                 c.ForeColor = Text;
             }
-            else if (c is CheckBox chk)
+            else if (chk != null)
             {
                 chk.BackColor = c.Parent != null ? c.Parent.BackColor : Back;
                 chk.ForeColor = Text;
             }
-            else if (c is Label lbl)
+            else if (lbl != null)
             {
                 lbl.BackColor = Color.Transparent;
                 lbl.ForeColor = (lbl.Tag as string) == "dim" ? TextDim : Text;
             }
-            else if (c is ProgressBar pb)
+            else if (pb != null)
             {
                 SetProgressBarDark(pb);
             }
-            else if (c is GroupBox gb)
+            else if (gb != null)
             {
                 gb.ForeColor = Text;
             }

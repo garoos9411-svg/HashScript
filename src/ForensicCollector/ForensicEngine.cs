@@ -19,6 +19,18 @@ namespace ForensicCollector
     /// <summary>Уровни сообщений для цветного лога.</summary>
     public enum LogLevel { Info, Success, Warning, Error }
 
+    /// <summary>
+    /// Найденный файл (результат безопасного обхода папок).
+    /// Заменяет кортежи C# 7 — совместимо со старым компилятором csc.exe (C# 5).
+    /// </summary>
+    public class FileEntry
+    {
+        public string Path;           // полный путь к файлу (без префикса \\?\)
+        public long Size;             // размер в байтах (-1, если недоступен)
+        public DateTime Created;      // дата создания
+        public DateTime Modified;     // дата изменения
+    }
+
     /// <summary>Параметры запуска сбора (считываются из UI).</summary>
     public class CollectOptions
     {
@@ -175,13 +187,18 @@ namespace ForensicCollector
         private static IEnumerable<string> SafeUserDirs()
         {
             yield return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            // Список собираем БЕЗ «yield» внутри try/catch — компилятор C# 5 это запрещает (CS1626).
+            List<string> userDirs = new List<string>();
             try
             {
                 // Корень системного диска определяем через GetWindowsDirectory
                 // (Environment.GetSystemDirectory() отсутствует в .NET 4.0/старых csc):
                 var winDirSb = new StringBuilder(260);
                 Native.GetWindowsDirectory(winDirSb, winDirSb.Capacity);
-                string usersDir = Path.Combine(Path.GetPathRoot(winDirSb.ToString()) ?? @"C:\", "Users");
+                string sysRoot = Path.GetPathRoot(winDirSb.ToString());
+                if (string.IsNullOrEmpty(sysRoot)) sysRoot = @"C:\";
+                string usersDir = Path.Combine(sysRoot, "Users");
                 foreach (var dir in Directory.EnumerateDirectories(PathEx.Long(usersDir)))
                 {
                     string name = Path.GetFileName(dir);
@@ -190,10 +207,13 @@ namespace ForensicCollector
                         || name.Equals("Default User", StringComparison.OrdinalIgnoreCase)
                         || name.Equals("All Users", StringComparison.OrdinalIgnoreCase))
                         continue;
-                    yield return dir;
+                    userDirs.Add(dir);
                 }
             }
             catch { /* недоступный C:\Users игнорируем */ }
+
+            foreach (string d in userDirs)
+                yield return d;
         }
 
         /// <summary>Запуск powershell.exe с возвратом stdout (тихо, без окна).</summary>
@@ -484,7 +504,7 @@ namespace ForensicCollector
 
                     // Имена файлов могут повторяться из разных папок — добавляем счётчик:
                     string baseName = SanitizeFileName(Path.GetFileName(src));
-                    string name = baseName, unique = baseName;
+                    string unique = baseName;
                     int n = 1;
                     while (!usedNames.Add(unique))
                     {
@@ -519,8 +539,7 @@ namespace ForensicCollector
         /// (системные каталоги, чужие профили, сетевые шары) логируются и НЕ
         /// прерывают обход. Внутри используется префикс \\?\ для длинных путей.
         /// </summary>
-        private IEnumerable<(string Path, long Size, DateTime Created, DateTime Modified)>
-            EnumerateFilesSafe(string root)
+        private IEnumerable<FileEntry> EnumerateFilesSafe(string root)
         {
             var stack = new Stack<string>();
             stack.Push(root);
@@ -559,7 +578,14 @@ namespace ForensicCollector
                             size = fi.Length; created = fi.CreationTime; modified = fi.LastWriteTime;
                         }
                         catch { /* метаданные недоступны — запишем как есть */ }
-                        yield return (CombineDisplay(dir, f), size, created, modified);
+                        // Возвращаем объект FileEntry вместо кортежа (совместимость с C# 5)
+                        yield return new FileEntry
+                        {
+                            Path = CombineDisplay(dir, f),
+                            Size = size,
+                            Created = created,
+                            Modified = modified
+                        };
                     }
                 }
                 if (dirs != null)
@@ -743,8 +769,7 @@ namespace ForensicCollector
                     File.Delete(PathEx.Long(zipPath));
 
                 Log("Упаковываю " + _root + " ...", LogLevel.Info);
-                System.IO.Compression.ZipFile.CreateFromDirectory(
-                    _root, zipPath, System.IO.Compression.CompressionLevel.Optimal, false);
+                ZipHelper.CreateFromDirectory(_root, zipPath);
 
                 var zfi = new FileInfo(PathEx.Long(zipPath));
                 Log("ZIP-архив готов: " + zipPath + " (" + HumanSize(zfi.Length) + ")", LogLevel.Success);

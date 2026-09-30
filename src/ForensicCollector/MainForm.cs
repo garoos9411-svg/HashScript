@@ -79,16 +79,18 @@ namespace ForensicCollector
             };
 
             int y = 28;
+            // Переменные объявляем заранее — старый csc.exe (.NET Framework) не поддерживает «out var» (C# 7)
+            Button btnBrowseReport, btnBrowseScan, btnBrowseR2J;
             txtReportFolder = AddSettingRow(grp, ref y, "Папка для сохранения отчёта:",
                 DefaultReportFolder(),
                 "Куда сохранить результаты. Будет создана подпапка Forensic_Report_<дата_время>.",
-                out var btnBrowseReport);
+                out btnBrowseReport);
             btnBrowseReport.Click += (s, e) => BrowseFolder(txtReportFolder);
 
             txtScanRoots = AddSettingRow(grp, ref y, "Диски/папки для сканирования:",
                 @"C:\",
                 "Где искать архивы (*.rar, *.zip, *.7z). Несколько путей через «;», например: C:\\;D:\\Work",
-                out var btnBrowseScan);
+                out btnBrowseScan);
             btnBrowseScan.Click += (s, e) =>
             {
                 using (var dlg = new FolderBrowserDialog { Description = "Выберите диск или папку для сканирования" })
@@ -109,7 +111,7 @@ namespace ForensicCollector
                 "",
                 "Утилита rar2john.exe из состава John the Ripper Jumbo. Без неё этап хэшей будет пропущен. " +
                 "Можно перетащить файл мышью прямо в это поле.",
-                out var btnBrowseR2J);
+                out btnBrowseR2J);
             btnBrowseR2J.Click += (s, e) =>
             {
                 using (var dlg = new OpenFileDialog
@@ -441,7 +443,7 @@ namespace ForensicCollector
         {
             if (_engine == null) return;
             _engine.Cancelled = true;               // мягкий флаг — engine прервёт циклы
-            _worker?.CancelAsync();
+            if (_worker != null) _worker.CancelAsync();
             lblStatus.Text = "Отмена... уже собранные данные будут сохранены";
             AddLog("Пользователь нажал «Отмена». Прерываю сбор, собранные данные сохраняются...", LogLevel.Warning);
             btnCancel.Enabled = false;              // защита от двойного нажатия
@@ -510,10 +512,19 @@ namespace ForensicCollector
             chkCopyArchives.Enabled = !running;
             chkExtractHashes.Enabled = !running;
             foreach (Control c in Controls)
-                if (c is GroupBox g)
+            {
+                // «as» вместо pattern matching «is GroupBox g» — совместимо со старым csc.exe (C# 5)
+                GroupBox g = c as GroupBox;
+                if (g != null)
+                {
                     foreach (Control gc in g.Controls)
-                        if (gc is Button b && b.Text.StartsWith("Обзор"))
+                    {
+                        Button b = gc as Button;
+                        if (b != null && b.Text.StartsWith("Обзор"))
                             b.Enabled = !running;
+                    }
+                }
+            }
             if (!running) lblStage.Text = string.IsNullOrEmpty(lblStage.Text) || lblStage.Text.StartsWith("Готов")
                 ? "Готов к запуску" : lblStage.Text;
         }
@@ -642,7 +653,7 @@ namespace ForensicCollector
                     "Уже собранные данные могут не сохраниться.",
                     "Подтверждение выхода", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (r != DialogResult.Yes) { e.Cancel = true; return; }
-                try { _engine?.Cancelled = true; _worker.CancelAsync(); } catch { }
+                try { if (_engine != null) _engine.Cancelled = true; _worker.CancelAsync(); } catch { }
             }
             base.OnFormClosing(e);
         }
@@ -694,6 +705,10 @@ namespace ForensicCollector
             Controls.AddRange(new Control[] { lbl, btnOpen, btnClose });
             AcceptButton = btnOpen;
             CancelButton = btnClose;
+
+            // Если ZIP не создан (например, ошибка упаковки) — открываем просто папку с результатами
+            string openTarget = !string.IsNullOrEmpty(zipPath) && File.Exists(zipPath) ? zipPath : folderPath;
+            btnOpen.Click -= null; // no-op для ясности
 
             Theme.Apply(this);
             Theme.StyleButton(btnOpen, Theme.Accent);
