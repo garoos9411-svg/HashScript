@@ -52,7 +52,8 @@ namespace ForensicCollector
 
         public ForensicEngine(CollectOptions options) { _o = options; }
 
-        private bool IsCancelled => Cancelled;
+        // Свойство-чтение флага отмены (без expression-bodied — совместимо со старым csc.exe)
+        private bool IsCancelled { get { return Cancelled; } }
 
         // ======================================================================
         //  ГЛАВНЫЙ МЕТОД: выполняет все этапы последовательно.
@@ -79,7 +80,7 @@ namespace ForensicCollector
         }
 
         /// <summary>Корень папки отчёта (создаётся заранее, доступен после RunAll).</summary>
-        public string ReportRoot => _root;
+        public string ReportRoot { get { return _root; } }
 
         // ======================================================================
         //  Подготовка структуры папок. Имя папки содержит дату/время создания.
@@ -176,7 +177,11 @@ namespace ForensicCollector
             yield return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             try
             {
-                string usersDir = Path.Combine(Path.GetPathRoot(Environment.GetSystemDirectory()) ?? @"C:\", "Users");
+                // Корень системного диска определяем через GetWindowsDirectory
+                // (Environment.GetSystemDirectory() отсутствует в .NET 4.0/старых csc):
+                var winDirSb = new StringBuilder(260);
+                Native.GetWindowsDirectory(winDirSb, winDirSb.Capacity);
+                string usersDir = Path.Combine(Path.GetPathRoot(winDirSb.ToString()) ?? @"C:\", "Users");
                 foreach (var dir in Directory.EnumerateDirectories(PathEx.Long(usersDir)))
                 {
                     string name = Path.GetFileName(dir);
@@ -255,14 +260,15 @@ namespace ForensicCollector
                     .Append('"').Append(logName).Append("\" ")
                     .Append('"').Append(fullTmp).Append('"');
 
-                int code = RunTool("wevtutil.exe", args.ToString(), out string stderr);
+                string stderr; // объявление заранее — совместимо со старым csc.exe (без out-var)
+                int code = RunTool("wevtutil.exe", args.ToString(), out stderr);
                 if (code != 0 || !File.Exists(PathEx.Long(fullTmp)))
                 {
                     Log("Не удалось экспортировать «" + description + "». Код=" + code + ". " + FirstLine(stderr) +
                         (Native.IsRunAsAdmin() ? "" : " (попробуйте запустить приложение от администратора)"),
                         LogLevel.Warning);
                     _stats[fileName] = "ПРОПУЩЕНО — " + FirstLine(stderr);
-                    Try(x => File.Delete(PathEx.Long(fullTmp)));
+                    TryDelete(fullTmp);
                     return;
                 }
 
@@ -296,7 +302,7 @@ namespace ForensicCollector
             {
                 Log("Ошибка экспорта журнала " + logName + ": " + ex.Message, LogLevel.Error);
                 _stats[fileName] = "ОШИБКА — " + ex.Message;
-                Try(x => File.Delete(PathEx.Long(fullTmp)));
+                TryDelete(fullTmp);
             }
         }
 
@@ -362,7 +368,8 @@ namespace ForensicCollector
                     }
                 }
 
-                int code = RunTool("reg.exe", "export \"" + regPath + "\" \"" + target + "\" /y", out string stderr);
+                string stderr; // без out-var — совместимость со старым csc.exe
+                int code = RunTool("reg.exe", "export \"" + regPath + "\" \"" + target + "\" /y", out stderr);
                 if (code == 0 && File.Exists(PathEx.Long(target)))
                 {
                     Log("Экспортирована ветка " + regPath + " → " + fileName, LogLevel.Success);
@@ -372,7 +379,7 @@ namespace ForensicCollector
                 {
                     Log("Не удалось экспортировать " + regPath + ": " + FirstLine(stderr), LogLevel.Warning);
                     _stats[fileName] = "ПРОПУЩЕНО — " + FirstLine(stderr);
-                    Try(x => File.Delete(PathEx.Long(target)));
+                    TryDelete(target);
                 }
             }
             catch (Exception ex)
@@ -621,7 +628,8 @@ namespace ForensicCollector
                         if (i % 25 == 0)
                             Progress(i, targets.Length, "Этап 5 из 5: обработка архивов " + i + "/" + targets.Length);
 
-                        string stdout = RunToolCapture(_o.Rar2JohnPath, Quote(arc), out int code);
+                        int code; // без out-var — совместимость со старым csc.exe
+                        string stdout = RunToolCapture(_o.Rar2JohnPath, Quote(arc), out code);
                         // rar2john печатает строки вида 'name.zip:$rar5$...' и служебный текст
                         bool wrote = false;
                         foreach (var raw in stdout.Split('\n'))
@@ -784,12 +792,13 @@ namespace ForensicCollector
             return s.Length > 120 ? s.Substring(0, 120) + "..." : s;
         }
 
-        private static void Try(Action action)
+        // Безопасное удаление временного файла (ошибки игнорируются намеренно)
+        private static void TryDelete(string path)
         {
-            try { action(); } catch { }
+            try { File.Delete(PathEx.Long(path)); } catch { }
         }
 
-        private static string Quote(string s) => "\"" + s + "\"";
+        private static string Quote(string s) { return "\"" + s + "\""; }
 
         private static string FormatDate(DateTime d)
         {

@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
+using System.Text;
 using System.Windows.Forms;
 
 // ============================================================================
@@ -12,6 +14,11 @@ namespace ForensicCollector
 {
     internal static class Native
     {
+        /// <summary>Win32: получение пути папки Windows (используется вместо
+        /// Environment.GetSystemDirectory(), которого нет в .NET Framework 4.0).</summary>
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        public static extern uint GetWindowsDirectory(StringBuilder buffer, int size);
+
         /// <summary>Проверка: запущен ли процесс с правами администратора.</summary>
         public static bool IsRunAsAdmin()
         {
