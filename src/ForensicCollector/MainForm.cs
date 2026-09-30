@@ -54,7 +54,7 @@ namespace ForensicCollector
         }
 
         /// <summary>Потокобезопасная запись в лог из UI-потока.</summary>
-        private void AddLog(string message, LogLevel level) => Engine_Log(message, level);
+        private void AddLog(string message, LogLevel level) { Engine_Log(message, level); }
 
         // ======================================================================
         //  ПОСТРОЕНИЕ ИНТЕРФЕЙСА (без designer.cs — всё кодом, чтобы собрать
